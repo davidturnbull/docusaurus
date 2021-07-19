@@ -11,7 +11,11 @@ const url = require('url');
 const fs = require('fs-extra');
 const escapeHtml = require('escape-html');
 const {getFileLoaderUtils} = require('@docusaurus/core/lib/webpack/utils');
-const {posixPath} = require('@docusaurus/utils');
+const {
+  posixPath,
+  escapePath,
+  toMessageRelativeFilePath,
+} = require('@docusaurus/utils');
 
 const {
   loaders: {inlineMarkdownImageFileLoader},
@@ -22,7 +26,9 @@ const createJSX = (node, pathUrl) => {
   jsxNode.type = 'jsx';
   jsxNode.value = `<img ${node.alt ? `alt={"${escapeHtml(node.alt)}"} ` : ''}${
     node.url
-      ? `src={require("${inlineMarkdownImageFileLoader}${pathUrl}").default}`
+      ? `src={require("${inlineMarkdownImageFileLoader}${escapePath(
+          pathUrl,
+        )}").default}`
       : ''
   }${node.title ? ` title="${escapeHtml(node.title)}"` : ''} />`;
 
@@ -37,19 +43,13 @@ const createJSX = (node, pathUrl) => {
   }
 };
 
-// Needed to throw errors with computer-agnostic path messages
-// Absolute paths are too dependant of user FS
-function toRelativePath(filePath) {
-  return path.relative(process.cwd(), filePath);
-}
-
 async function ensureImageFileExist(imagePath, sourceFilePath) {
-  const imageExists = await fs.exists(imagePath);
+  const imageExists = await fs.pathExists(imagePath);
   if (!imageExists) {
     throw new Error(
-      `Image ${toRelativePath(imagePath)} used in ${toRelativePath(
-        sourceFilePath,
-      )} not found.`,
+      `Image ${toMessageRelativeFilePath(
+        imagePath,
+      )} used in ${toMessageRelativeFilePath(sourceFilePath)} not found.`,
     );
   }
 }
@@ -57,7 +57,9 @@ async function ensureImageFileExist(imagePath, sourceFilePath) {
 async function processImageNode(node, {filePath, staticDir}) {
   if (!node.url) {
     throw new Error(
-      `Markdown image url is mandatory. filePath=${toRelativePath(filePath)}`,
+      `Markdown image URL is mandatory in "${toMessageRelativeFilePath(
+        filePath,
+      )}" file`,
     );
   }
 

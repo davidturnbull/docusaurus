@@ -5,16 +5,17 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import * as Joi from 'joi';
 import {
+  Joi,
   RemarkPluginsSchema,
   RehypePluginsSchema,
   AdmonitionsSchema,
   URISchema,
 } from '@docusaurus/utils-validation';
+import {GlobExcludeDefault} from '@docusaurus/utils';
 
 export const DEFAULT_OPTIONS = {
-  feedOptions: {},
+  feedOptions: {type: ['rss', 'atom']},
   beforeDefaultRehypePlugins: [],
   beforeDefaultRemarkPlugins: [],
   admonitions: {},
@@ -32,8 +33,10 @@ export const DEFAULT_OPTIONS = {
   blogSidebarTitle: 'Recent posts',
   postsPerPage: 10,
   include: ['*.md', '*.mdx'],
+  exclude: GlobExcludeDefault,
   routeBasePath: 'blog',
   path: 'blog',
+  editLocalizedFiles: false,
 };
 
 export const PluginOptionSchema = Joi.object({
@@ -43,6 +46,7 @@ export const PluginOptionSchema = Joi.object({
     // .allow('')
     .default(DEFAULT_OPTIONS.routeBasePath),
   include: Joi.array().items(Joi.string()).default(DEFAULT_OPTIONS.include),
+  exclude: Joi.array().items(Joi.string()).default(DEFAULT_OPTIONS.exclude),
   postsPerPage: Joi.number()
     .integer()
     .min(1)
@@ -67,7 +71,8 @@ export const PluginOptionSchema = Joi.object({
   remarkPlugins: RemarkPluginsSchema.default(DEFAULT_OPTIONS.remarkPlugins),
   rehypePlugins: RehypePluginsSchema.default(DEFAULT_OPTIONS.rehypePlugins),
   admonitions: AdmonitionsSchema.default(DEFAULT_OPTIONS.admonitions),
-  editUrl: URISchema,
+  editUrl: Joi.alternatives().try(URISchema, Joi.function()),
+  editLocalizedFiles: Joi.boolean().default(DEFAULT_OPTIONS.editLocalizedFiles),
   truncateMarker: Joi.object().default(DEFAULT_OPTIONS.truncateMarker),
   beforeDefaultRemarkPlugins: RemarkPluginsSchema.default(
     DEFAULT_OPTIONS.beforeDefaultRemarkPlugins,
@@ -76,12 +81,20 @@ export const PluginOptionSchema = Joi.object({
     DEFAULT_OPTIONS.beforeDefaultRehypePlugins,
   ),
   feedOptions: Joi.object({
-    type: Joi.alternatives().conditional(
-      Joi.string().equal('all', 'rss', 'atom'),
-      {
-        then: Joi.custom((val) => (val === 'all' ? ['rss', 'atom'] : [val])),
-      },
-    ),
+    type: Joi.alternatives()
+      .try(
+        Joi.array().items(Joi.string()),
+        Joi.alternatives().conditional(
+          Joi.string().equal('all', 'rss', 'atom'),
+          {
+            then: Joi.custom((val) =>
+              val === 'all' ? ['rss', 'atom'] : [val],
+            ),
+          },
+        ),
+      )
+      .allow(null)
+      .default(DEFAULT_OPTIONS.feedOptions.type),
     title: Joi.string().allow(''),
     description: Joi.string().allow(''),
     copyright: Joi.string(),

@@ -5,54 +5,75 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-import chalk = require('chalk');
+import chalk from 'chalk';
 import CopyWebpackPlugin from 'copy-webpack-plugin';
 import fs from 'fs-extra';
 import path from 'path';
-import ReactLoadableSSRAddon from 'react-loadable-ssr-addon';
-import {Configuration, Plugin} from 'webpack';
+import ReactLoadableSSRAddon from 'react-loadable-ssr-addon-v5-slorber';
+import {Configuration} from 'webpack';
 import {BundleAnalyzerPlugin} from 'webpack-bundle-analyzer';
 import merge from 'webpack-merge';
 import {STATIC_DIR_NAME} from '../constants';
-import {load} from '../server';
+import {load, loadContext} from '../server';
 import {handleBrokenLinks} from '../server/brokenLinks';
 
 import {BuildCLIOptions, Props} from '@docusaurus/types';
 import createClientConfig from '../webpack/client';
 import createServerConfig from '../webpack/server';
-import {compile, applyConfigureWebpack} from '../webpack/utils';
+import {
+  applyConfigurePostCss,
+  applyConfigureWebpack,
+  compile,
+} from '../webpack/utils';
 import CleanWebpackPlugin from '../webpack/plugins/CleanWebpackPlugin';
 import {loadI18n} from '../server/i18n';
 import {mapAsyncSequencial} from '@docusaurus/utils';
-import loadConfig from '../server/config';
 
 export default async function build(
   siteDir: string,
   cliOptions: Partial<BuildCLIOptions> = {},
+
+  // TODO what's the purpose of this arg ?
   forceTerminate: boolean = true,
 ): Promise<string> {
-  async function tryToBuildLocale(locale: string, forceTerm) {
+  async function tryToBuildLocale({
+    locale,
+    isLastLocale,
+  }: {
+    locale: string;
+    isLastLocale: boolean;
+  }) {
     try {
-      const result = await buildLocale(siteDir, locale, cliOptions, forceTerm);
-      console.log(chalk.green(`Site successfully built in locale=${locale}`));
-      return result;
+      // console.log(chalk.green(`Site successfully built in locale=${locale}`));
+      return await buildLocale({
+        siteDir,
+        locale,
+        cliOptions,
+        forceTerminate,
+        isLastLocale,
+      });
     } catch (e) {
-      console.error(`error building locale=${locale}`);
+      console.error(`Unable to build website for locale "${locale}".`);
       throw e;
     }
   }
-
-  const i18n = await loadI18n(loadConfig(siteDir), {
+  const context = await loadContext(siteDir, {
+    customOutDir: cliOptions.outDir,
+    customConfigFilePath: cliOptions.config,
+    locale: cliOptions.locale,
+    localizePath: cliOptions.locale ? false : undefined,
+  });
+  const i18n = await loadI18n(context.siteConfig, {
     locale: cliOptions.locale,
   });
   if (cliOptions.locale) {
-    return tryToBuildLocale(cliOptions.locale, forceTerminate);
+    return tryToBuildLocale({locale: cliOptions.locale, isLastLocale: true});
   } else {
     if (i18n.locales.length > 1) {
       console.log(
         chalk.yellow(
-          `\nSite will be built with all these locales:
-- ${i18n.locales.join('\n- ')}\n`,
+          `\nWebsite will be built for all these locales:
+- ${i18n.locales.join('\n- ')}`,
         ),
       );
     }
@@ -66,29 +87,35 @@ export default async function build(
 
     const results = await mapAsyncSequencial(orderedLocales, (locale) => {
       const isLastLocale =
-        i18n.locales.indexOf(locale) === i18n.locales.length - 1;
-      // TODO check why we need forceTerminate
-      const forceTerm = isLastLocale && forceTerminate;
-      return tryToBuildLocale(locale, forceTerm);
+        orderedLocales.indexOf(locale) === orderedLocales.length - 1;
+      return tryToBuildLocale({locale, isLastLocale});
     });
-    return results[0]!;
+    return results[0];
   }
 }
 
-async function buildLocale(
-  siteDir: string,
-  locale: string,
-  cliOptions: Partial<BuildCLIOptions> = {},
-  forceTerminate: boolean = true,
-): Promise<string> {
+async function buildLocale({
+  siteDir,
+  locale,
+  cliOptions,
+  forceTerminate,
+  isLastLocale,
+}: {
+  siteDir: string;
+  locale: string;
+  cliOptions: Partial<BuildCLIOptions>;
+  forceTerminate: boolean;
+  isLastLocale: boolean;
+}): Promise<string> {
   process.env.BABEL_ENV = 'production';
   process.env.NODE_ENV = 'production';
   console.log(
-    chalk.blue(`[${locale}] Creating an optimized production build...`),
+    chalk.blue(`\n[${locale}] Creating an optimized production build...`),
   );
 
   const props: Props = await load(siteDir, {
     customOutDir: cliOptions.outDir,
+    customConfigFilePath: cliOptions.config,
     locale,
     localizePath: cliOptions.locale ? false : undefined,
   });
@@ -118,7 +145,7 @@ async function buildLocale(
         new ReactLoadableSSRAddon({
           filename: clientManifestPath,
         }),
-      ].filter(Boolean) as Plugin[],
+      ].filter(Boolean),
     },
   );
 
@@ -132,7 +159,7 @@ async function buildLocale(
   });
 
   const staticDir = path.resolve(siteDir, STATIC_DIR_NAME);
-  if (fs.existsSync(staticDir)) {
+  if (await fs.pathExists(staticDir)) {
     serverConfig = merge(serverConfig, {
       plugins: [
         new CopyWebpackPlugin({
@@ -147,30 +174,37 @@ async function buildLocale(
     });
   }
 
-  // Plugin Lifecycle - configureWebpack.
+  // Plugin Lifecycle - configureWebpack and configurePostCss.
   plugins.forEach((plugin) => {
-    const {configureWebpack} = plugin;
-    if (!configureWebpack) {
-      return;
+    const {configureWebpack, configurePostCss} = plugin;
+
+    if (configurePostCss) {
+      clientConfig = applyConfigurePostCss(configurePostCss, clientConfig);
     }
 
-    clientConfig = applyConfigureWebpack(
-      configureWebpack.bind(plugin), // The plugin lifecycle may reference `this`.
-      clientConfig,
-      false,
-    );
+    if (configureWebpack) {
+      clientConfig = applyConfigureWebpack(
+        configureWebpack.bind(plugin), // The plugin lifecycle may reference `this`. // TODO remove this implicit api: inject in callback instead
+        clientConfig,
+        false,
+        props.siteConfig.webpack?.jsLoader,
+        plugin.content,
+      );
 
-    serverConfig = applyConfigureWebpack(
-      configureWebpack.bind(plugin), // The plugin lifecycle may reference `this`.
-      serverConfig,
-      true,
-    );
+      serverConfig = applyConfigureWebpack(
+        configureWebpack.bind(plugin), // The plugin lifecycle may reference `this`. // TODO remove this implicit api: inject in callback instead
+        serverConfig,
+        true,
+        props.siteConfig.webpack?.jsLoader,
+        plugin.content,
+      );
+    }
   });
 
   // Make sure generated client-manifest is cleaned first so we don't reuse
   // the one from previous builds.
-  if (fs.existsSync(clientManifestPath)) {
-    fs.unlinkSync(clientManifestPath);
+  if (await fs.pathExists(clientManifestPath)) {
+    await fs.unlink(clientManifestPath);
   }
 
   // Run webpack to build JS bundle (client) and static html files (server).
@@ -183,11 +217,9 @@ async function buildLocale(
     typeof serverConfig.output.filename === 'string'
   ) {
     const serverBundle = path.join(outDir, serverConfig.output.filename);
-    fs.pathExists(serverBundle).then((exist) => {
-      if (exist) {
-        fs.unlink(serverBundle);
-      }
-    });
+    if (await fs.pathExists(serverBundle)) {
+      await fs.unlink(serverBundle);
+    }
   }
 
   // Plugin Lifecycle - postBuild.
@@ -208,15 +240,21 @@ async function buildLocale(
     baseUrl,
   });
 
-  const relativeDir = path.relative(process.cwd(), outDir);
   console.log(
-    `\n${chalk.green('Success!')} Generated static files in ${chalk.cyan(
-      relativeDir,
-    )}. Use ${chalk.greenBright(
-      '`npm run serve`',
-    )} to test your build locally.\n`,
+    `${chalk.green(`Success!`)} Generated static files in "${chalk.cyan(
+      path.relative(process.cwd(), outDir),
+    )}".`,
   );
-  if (forceTerminate && !cliOptions.bundleAnalyzer) {
+
+  if (isLastLocale) {
+    console.log(
+      `\nUse ${chalk.greenBright(
+        '`npm run serve`',
+      )} command to test your build locally.\n`,
+    );
+  }
+
+  if (forceTerminate && isLastLocale && !cliOptions.bundleAnalyzer) {
     process.exit(0);
   }
 

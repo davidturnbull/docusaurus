@@ -7,11 +7,7 @@
 
 module.exports = {
   docs: [
-    {
-      type: 'category',
-      label: 'Docusaurus',
-      items: ['introduction', 'design-principles', 'contributing'],
-    },
+    'introduction',
     {
       type: 'category',
       label: 'Getting Started',
@@ -23,14 +19,64 @@ module.exports = {
       label: 'Guides',
       items: [
         'guides/creating-pages',
-        'styling-layout',
-        'static-assets',
         {
-          Docs: ['docs-introduction', 'markdown-features', 'versioning'],
+          Docs: [
+            'guides/docs/introduction',
+            'guides/docs/create-doc',
+            'guides/docs/sidebar',
+            'guides/docs/versioning',
+            'guides/docs/markdown-features',
+            'guides/docs/multi-instance',
+          ],
         },
         'blog',
+        {
+          type: 'category',
+          label: 'Markdown Features',
+          items: [
+            'guides/markdown-features/introduction',
+            'guides/markdown-features/react',
+            'guides/markdown-features/tabs',
+            'guides/markdown-features/code-blocks',
+            'guides/markdown-features/admonitions',
+            'guides/markdown-features/headings',
+            'guides/markdown-features/inline-toc',
+            'guides/markdown-features/assets',
+            'guides/markdown-features/plugins',
+            'guides/markdown-features/math-equations',
+          ],
+        },
+        'styling-layout',
+        'static-assets',
         'search',
+        'browser-support',
         'deployment',
+        {
+          type: 'category',
+          label: 'Internationalization',
+          items: [
+            {
+              type: 'doc',
+              id: 'i18n/introduction',
+              label: 'Introduction',
+            },
+            {
+              type: 'doc',
+              id: 'i18n/tutorial',
+              label: 'Tutorial',
+            },
+            {
+              type: 'doc',
+              id: 'i18n/git',
+              label: 'Using Git',
+            },
+            {
+              type: 'doc',
+              id: 'i18n/crowdin',
+              label: 'Using Crowdin',
+            },
+          ],
+        },
       ],
     },
     {
